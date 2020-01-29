@@ -10,16 +10,16 @@ imgraph = nx.Graph()
 
 # shape is (rows, cols), (y, x)
 
-width, height = imarray.shape
+height, width = imarray.shape
 
-valueMap = {}
+valueMap = []
 
 #indexCount = 0
 
 for x in range(width):
     for y in range(height):
         idx = x + width * y
-        valueMap[idx] = imarray[y, x]
+        valueMap.append((idx, imarray[y, x]))
 
         # if we're not on the leastmost column,
         if(x > 0):
@@ -46,3 +46,12 @@ for x in range(width):
 # topology.persistence(Nodes, edges)
 # “Nodes” is an (int, float) list of (node Id, scalar value) pairs,
 # “edges” is an (int, int) list of edges between node ids.
+
+# valueMap is our list of Nodes and values.
+# Edges we need to extract from our nx graph.
+
+edgeList = list(imgraph.edges(data=False))
+
+result = topology.persistence(valueMap, edgeList)
+
+breakpoint()
