@@ -2,6 +2,8 @@
 **/*.rs.bk
 Cargo.lock
 *.swp
+*.pyc
+*.so
 *.qgz
 *.tif
 .DS_Store
