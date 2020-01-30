@@ -10,6 +10,7 @@ maturin = "*"
 pillow = "*"
 numpy = "*"
 networkx = "*"
+memory-profiler = "*"
 
 [requires]
 python_version = "3.7"
