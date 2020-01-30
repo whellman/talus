@@ -51,6 +51,7 @@ for x in range(width):
 # Edges we need to extract from our nx graph.
 
 edgeList = list(imgraph.edges(data=False))
+breakpoint()
 
 result = topology.persistence(valueMap, edgeList)
 
