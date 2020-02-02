@@ -10,3 +10,6 @@ Cargo.lock
 *.asc
 *.xml
 *.dat
+*.pickle
+*.gexf
+

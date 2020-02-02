@@ -7,10 +7,10 @@ verify_ssl = true
 
 [packages]
 maturin = "*"
-pillow = "*"
 numpy = "*"
 networkx = "*"
 memory-profiler = "*"
+pillow = "*"
 
 [requires]
 python_version = "3.7"

@@ -3,11 +3,14 @@ from PIL import Image
 import numpy
 import networkx as nx
 import cProfile
+#import pickle
+#import io
 
 tif_filename = 'pikes_dem.tif'
 
 im = Image.open(tif_filename)
 imarray = numpy.array(im)
+imarray = numpy.random.random(imarray.shape) #* 0.001 # adding noise to break potential ties
 
 imgraph = nx.Graph()
 
@@ -65,7 +68,15 @@ for x in range(width):
 
 # Now we can use the topology function.
 
-cProfile.run('result = morse.persistence(imgraph)')
+# print(nx.is_connected(imgraph))
+# nx.write_gexf(imgraph, (tif_filename + '.gexf'))
+# breakpoint()
+# pickleF = open((tif_filename + '_nxgraph.pickle'), 'wb')
+# pickle.dump(imgraph, pickleF)
+# breakpoint()
+# cProfile.run('result = morse.persistence(imgraph)')
+#breakpoint()
+result = morse.persistence(imgraph)
 
 for x in range(width):
     for y in range(height):
