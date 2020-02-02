@@ -22,8 +22,31 @@ py_module_initializer!(talus, inittalus, PyInit_talus, |py, m| {
     m.add(py, "__doc__", "This module is implemented in Rust.")?;
     m.add(py, "_persistence", py_fn!(py, persistence_py(nodes: PyList, edges: PyList)))?;
     m.add(py, "_persistence_by_knn", py_fn!(py, knn_persistence_py(points: PyList, k: usize)))?;
+    m.add(py, "_persistence_by_approximate_knn", py_fn!(py, approximate_knn_persistence_py(points: PyList, k: usize, sample_rate: f64, precision: f64)))?;
     Ok(())
 });
+
+fn approximate_knn_persistence_py(py: Python, points: PyList, k: usize, sample_rate: f64, precision: f64) -> PyResult<PyDict> {
+    let mut labeled_points = Vec::with_capacity(points.len(py));
+    for point in points.iter(py) {
+        labeled_points.push(point.extract(py)?);
+    }
+    println!("about to build the graph");
+    let mut g = graph::build_knn_approximate(&labeled_points, k, sample_rate, precision);
+    println!("built");
+    let mut complex = morse::MorseComplex::from_graph(&mut g);
+    let lifetimes = complex
+        .compute_morse_complex(morse::MorseKind::Descending)
+        .get_persistence(morse::MorseKind::Descending)
+        .expect("couldn't get lifetimes");
+    let lifetimes: HashMap<i64, f64> = lifetimes.iter()
+        .map(|(k,v)| {
+            let id = g.node_weight(*k).unwrap().id;
+            (id, *v)
+        })
+        .collect();
+    Ok(lifetimes.to_py_object(py))
+}
 
 fn knn_persistence_py(py: Python, points: PyList, k: usize) -> PyResult<PyDict> {
     let mut labeled_points = Vec::with_capacity(points.len(py));
@@ -34,7 +57,10 @@ fn knn_persistence_py(py: Python, points: PyList, k: usize) -> PyResult<PyDict> 
     let mut g = graph::build_knn(&labeled_points, k);
     println!("built");
     let mut complex = morse::MorseComplex::from_graph(&mut g);
-    let lifetimes = complex.compute_persistence();
+    let lifetimes = complex
+        .compute_morse_complex(morse::MorseKind::Descending)
+        .get_persistence(morse::MorseKind::Descending)
+        .expect("couldn't get lifetimes");
     let lifetimes: HashMap<i64, f64> = lifetimes.iter()
         .map(|(k,v)| {
             let id = g.node_weight(*k).unwrap().id;
@@ -61,7 +87,10 @@ fn persistence_py(py: Python, nodes: PyList, edges: PyList) -> PyResult<PyDict> 
         g.add_edge((id_lookup.get(&left).unwrap()).1, id_lookup.get(&right).unwrap().1, 0.);
     }
     let mut complex = morse::MorseComplex::from_graph(&mut g);
-    let lifetimes = complex.compute_persistence();
+    let lifetimes = complex
+        .compute_morse_complex(morse::MorseKind::Descending)
+        .get_persistence(morse::MorseKind::Descending)
+        .expect("couldn't get lifetimes");
     let lifetimes: HashMap<i64, f64> = lifetimes.iter()
         .map(|(k,v)| {
             let id = g.node_weight(*k).unwrap().id;
@@ -102,6 +131,12 @@ impl LabeledPoint {
             .map(|v| v.parse::<f64>().expect("Expected a float"))
             .collect();
         LabeledPoint{id, point, value}
+    }
+
+    fn distance(&self, other: &Self) -> f64 {
+        self.point.iter().zip(other.point.iter())
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f64>().sqrt()
     }
 
     pub fn to_owned(&self) -> LabeledPoint {
