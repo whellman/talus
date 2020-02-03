@@ -2,7 +2,7 @@ import talus.morse as morse
 from PIL import Image
 import numpy
 import networkx as nx
-import cProfile
+#import cProfile
 #import pickle
 #import io
 
@@ -10,7 +10,6 @@ tif_filename = 'pikes_dem.tif'
 
 im = Image.open(tif_filename)
 imarray = numpy.array(im)
-imarray = numpy.random.random(imarray.shape) #* 0.001 # adding noise to break potential ties
 
 imgraph = nx.Graph()
 
@@ -30,10 +29,14 @@ nodes = []
 # Also, if the boundaries were treated separately you could
 # probably skip ever other row
 
+biggest_value = 0
+
 for x in range(width):
     for y in range(height):
         idx = x + width * y
         value = imarray[y, x]
+        if value > biggest_value:
+            biggest_value = value
         my_node = morse.MorseNode(identifier=idx, value=value)
         nodes.append(my_node)
 
@@ -66,6 +69,8 @@ for x in range(width):
             neighbor_node = morse.MorseNode(identifier=neighbor_idx, value=neighbor_value)
             imgraph.add_edge(my_node, neighbor_node)
 
+number_of_nines = len(str(int(biggest_value)))
+infinity_replacement_value = '9' * number_of_nines
 # Now we can use the topology function.
 
 # print(nx.is_connected(imgraph))
@@ -82,16 +87,16 @@ for x in range(width):
     for y in range(height):
         idx = x + width * y
         if result[idx] == float('inf'):
-            imarray[y, x] = 9999
+            imarray[y, x] = infinity_replacement_value
         else:
-            imarray[y, x] = int(result[idx] * 100)
+            imarray[y, x] = int(result[idx]) #* 100)
 
 
 
 # Esri ASCII Raster Format
 # http://resources.esri.com/help/9.3/ArcGISengine/java/Gp_ToolRef/Spatial_Analyst_Tools/esri_ascii_raster_format.htm
 
-outF = open((tif_filename + ".asc"), "w")
+outF = open((tif_filename + ".persistence.asc"), "w")
 
 outF.write("ncols " + str(width))
 outF.write("\n")
