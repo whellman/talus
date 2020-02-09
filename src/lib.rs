@@ -1,5 +1,3 @@
-use ndarray::prelude::*;
-
 use std::fs::File;
 use std::f64;
 use std::error::Error;
@@ -7,14 +5,14 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::io::BufReader;
 use csv::StringRecord;
-use petgraph::graph::{Graph, NodeIndex};
+use petgraph::graph::{UnGraph, NodeIndex};
 
 
 pub mod morse;
 pub mod graph;
 
 #[macro_use] extern crate cpython;
-use cpython::{PyResult, Python, PyList, PyTuple, PyDict, PyObject, ToPyObject, FromPyObject};
+use cpython::{PyResult, Python, PyList, PyTuple, PyObject, ToPyObject, FromPyObject};
 use crate::cpython::ObjectProtocol;
 
 
@@ -26,54 +24,32 @@ py_module_initializer!(talus, inittalus, PyInit_talus, |py, m| {
     Ok(())
 });
 
-fn approximate_knn_persistence_py(py: Python, points: PyList, k: usize, sample_rate: f64, precision: f64) -> PyResult<PyDict> {
+fn approximate_knn_persistence_py(py: Python, points: PyList, k: usize, sample_rate: f64, precision: f64) -> PyResult<PyTuple> {
     let mut labeled_points = Vec::with_capacity(points.len(py));
     for point in points.iter(py) {
         labeled_points.push(point.extract(py)?);
     }
-    println!("about to build the graph");
-    let mut g = graph::build_knn_approximate(&labeled_points, k, sample_rate, precision);
-    println!("built");
-    let mut complex = morse::MorseComplex::from_graph(&mut g);
-    let lifetimes = complex
-        .compute_morse_complex(morse::MorseKind::Descending)
-        .get_persistence(morse::MorseKind::Descending)
-        .expect("couldn't get lifetimes");
-    let lifetimes: HashMap<i64, f64> = lifetimes.iter()
-        .map(|(k,v)| {
-            let id = g.node_weight(*k).unwrap().id;
-            (id, *v)
-        })
-        .collect();
-    Ok(lifetimes.to_py_object(py))
+    let g = graph::build_knn_approximate(&labeled_points, k, sample_rate, precision);
+    let complex = morse::MorseSmaleComplex::from_graph(&g);
+    let data = complex.to_data(&g);
+    Ok(data.into_py_object(py))
 }
 
-fn knn_persistence_py(py: Python, points: PyList, k: usize) -> PyResult<PyDict> {
+fn knn_persistence_py(py: Python, points: PyList, k: usize) -> PyResult<PyTuple> {
     let mut labeled_points = Vec::with_capacity(points.len(py));
     for point in points.iter(py) {
         labeled_points.push(point.extract(py)?);
     }
-    println!("about to build the graph");
-    let mut g = graph::build_knn(&labeled_points, k);
-    println!("built");
-    let mut complex = morse::MorseComplex::from_graph(&mut g);
-    let lifetimes = complex
-        .compute_morse_complex(morse::MorseKind::Descending)
-        .get_persistence(morse::MorseKind::Descending)
-        .expect("couldn't get lifetimes");
-    let lifetimes: HashMap<i64, f64> = lifetimes.iter()
-        .map(|(k,v)| {
-            let id = g.node_weight(*k).unwrap().id;
-            (id, *v)
-        })
-        .collect();
-    Ok(lifetimes.to_py_object(py))
+    let g = graph::build_knn(&labeled_points, k);
+    let complex = morse::MorseSmaleComplex::from_graph(&g);
+    let data = complex.to_data(&g);
+    Ok(data.into_py_object(py))
 }
 
-fn persistence_py(py: Python, nodes: PyList, edges: PyList) -> PyResult<(PyDict, PyList, PyList)> {
+fn persistence_py(py: Python, nodes: PyList, edges: PyList) -> PyResult<PyTuple> {
     let mut labeled_nodes: Vec<NodeIndex> = Vec::with_capacity(nodes.len(py));
     let mut id_lookup: HashMap<i64, (usize, NodeIndex)> = HashMap::with_capacity(nodes.len(py));
-    let mut g = Graph::new_undirected();
+    let mut g = UnGraph::new_undirected();
     for (i, node) in nodes.iter(py).enumerate() {
         let point: LabeledPoint = node.extract(py)?;
         let node = g.add_node(point.to_owned());
@@ -86,30 +62,59 @@ fn persistence_py(py: Python, nodes: PyList, edges: PyList) -> PyResult<(PyDict,
         let right: i64 = node_tuple.get_item(py, 1).extract(py)?;
         g.add_edge((id_lookup.get(&left).unwrap()).1, id_lookup.get(&right).unwrap().1, 1.);
     }
-    let mut complex = morse::MorseComplex::from_graph(&mut g);
-    let lifetimes = complex
-        .compute_morse_complex(morse::MorseKind::Descending)
-        .get_persistence(morse::MorseKind::Descending)
-        .expect("couldn't get lifetimes");
-    let filtration = complex.get_filtration(morse::MorseKind::Descending);
-    let complex = complex.get_complex(morse::MorseKind::Descending);
-    let lifetimes: HashMap<i64, f64> = lifetimes.iter()
-        .map(|(k,v)| {
-            let id = g.node_weight(*k).unwrap().id;
-            (id, *v)
-        })
-        .collect();
-    let filtration: Vec<(f64, i64, i64)> = filtration.iter()
-        .map(|(lifetime, node, parent)| {
-            (*lifetime, g.node_weight(*node).unwrap().id, g.node_weight(*parent).unwrap().id)
-        })
-        .collect();
-    let complex: Vec<(i64, i64)> = complex.iter()
-        .map(|(node, ancestor)| {
-            (g.node_weight(*node).unwrap().id, g.node_weight(*ancestor).unwrap().id)
-        })
-        .collect();
-    Ok((lifetimes.to_py_object(py), filtration.to_py_object(py), complex.to_py_object(py)))
+    let complex = morse::MorseSmaleComplex::from_graph(&g);
+    let data = complex.to_data(&g);
+    Ok(data.into_py_object(py))
+}
+
+
+// FIXME: still need more types here
+// ALSO FIXME: these probably belong in morse.rs
+struct MorseComplexData {
+    lifetimes: HashMap<i64, f64>,
+    filtration: Vec<(f64, i64, i64)>,
+    complex: Vec<(i64, i64)>
+}
+
+impl ToPyObject for MorseComplexData {
+    type ObjectType = PyTuple;
+    fn to_py_object(&self, py: Python) -> Self::ObjectType {
+        (self.lifetimes.clone(), self.filtration.clone(), self.complex.clone()).to_py_object(py)
+    }
+
+    fn into_py_object(self, py: Python) -> Self::ObjectType {
+        (self.lifetimes, self.filtration, self.complex).to_py_object(py)
+    }
+}
+
+impl morse::MorseSmaleComplex {
+    fn to_data(&self, graph: &UnGraph<LabeledPoint, f64>) -> (MorseComplexData, MorseComplexData) {
+        (self.descending_complex.to_data(graph), self.ascending_complex.to_data(graph))
+    }
+}
+
+impl morse::MorseComplex {
+    fn to_data(&self, graph: &UnGraph<LabeledPoint, f64>) -> MorseComplexData {
+        let lifetimes = self.get_persistence().expect("couldn't get lifetimes");
+        let filtration = self.filtration.as_ref().expect("no filtration?");
+        let lifetimes: HashMap<i64, f64> = lifetimes.iter()
+            .map(|(k,v)| {
+                let id = graph.node_weight(*k).unwrap().id;
+                (id, *v)
+            })
+            .collect();
+        let filtration: Vec<(f64, i64, i64)> = filtration.iter()
+            .map(|filtration| {
+                (filtration.time, graph.node_weight(filtration.destroyed_cell).unwrap().id, graph.node_weight(filtration.owning_cell).unwrap().id)
+            })
+            .collect();
+        let complex: Vec<(i64, i64)> = self.get_complex().iter()
+            .map(|(node, ancestor)| {
+                (graph.node_weight(*node).unwrap().id, graph.node_weight(*ancestor).unwrap().id)
+            })
+            .collect();
+        MorseComplexData{lifetimes, filtration, complex}
+    }
 }
 
 #[derive(Debug)]
@@ -125,13 +130,12 @@ impl<'s> FromPyObject<'s> for LabeledPoint {
         let value: f64 = obj.getattr(py, "value")?.extract(py)?;
         let list: PyList = obj.getattr(py, "vector")?.extract(py)?;
         let mut point: Vec<f64> = Vec::with_capacity(list.len(py));
-        for (i, value) in list.iter(py).enumerate() {
+        for value in list.iter(py) {
             let v = value.extract(py)?;
             point.push(v);
         };
         Ok(LabeledPoint{id, value, point})
     }
-
 }
 
 impl LabeledPoint {
